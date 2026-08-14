@@ -253,6 +253,10 @@ describe("release transaction", () => {
         resolve(lock, "owner.json"),
         `${JSON.stringify({ pid: 2_147_483_647, startedAt: "2020-01-01T00:00:00Z" })}\n`,
       );
+      const staleStaging = resolve(root, ".staging-30-2147483647-interrupted");
+      const unrelatedStaging = resolve(root, ".staging-30-1234-unrelated");
+      await mkdir(staleStaging);
+      await mkdir(unrelatedStaging);
       const result = await publishRelease({
         config: testConfig(),
         root: "/tmp/app",
@@ -270,6 +274,9 @@ describe("release transaction", () => {
       });
       expect(result.receipt.build).toBe(29);
       expect(await Bun.file(lock).exists()).toBeFalse();
+      const remaining = await readdirNames(root);
+      expect(remaining).not.toContain(".staging-30-2147483647-interrupted");
+      expect(remaining).toContain(".staging-30-1234-unrelated");
     } finally {
       await rm(root, { recursive: true, force: true });
     }

@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import { createArchive } from "./archive";
 import type { CommandRunner } from "./process";
@@ -177,6 +177,17 @@ async function acquireReleaseLock(releasesRoot: string): Promise<string> {
       try {
         await rename(path, stalePath);
         await mkdir(path);
+        const staleOwner = owner.pid as number;
+        const ownerSegment = `-${staleOwner}-`;
+        for (const entry of await readdir(releasesRoot, { withFileTypes: true })) {
+          if (
+            entry.isDirectory() &&
+            entry.name.startsWith(".staging-") &&
+            entry.name.includes(ownerSegment)
+          ) {
+            await rm(resolve(releasesRoot, entry.name), { recursive: true, force: true });
+          }
+        }
       } finally {
         await rm(stalePath, { recursive: true, force: true });
       }
