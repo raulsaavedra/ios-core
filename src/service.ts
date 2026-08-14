@@ -8,7 +8,7 @@ import { systemRunner } from "./process";
 import { writeJSONAtomic } from "./receipts";
 import type { RegisteredApplication, ServiceRegistry } from "./types";
 
-const PACKAGE_VERSION = "0.1.1";
+const PACKAGE_VERSION = "0.1.2";
 const LABEL = "com.raulsaavedra.ios-core";
 
 interface RuntimeReceipt {
@@ -137,6 +137,29 @@ export async function buildServiceRuntime(stateRoot = serviceStateRoot()): Promi
   const runtimePath = resolve(runtimeDirectory, "service.js");
   const receiptPath = resolve(runtimeDirectory, "receipt.json");
   await mkdir(runtimeDirectory, { recursive: true });
+  let installed: RuntimeReceipt | undefined;
+  try {
+    installed = JSON.parse(await readFile(receiptPath, "utf8")) as RuntimeReceipt;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  if (installed) {
+    const versionOrder = compareVersions(installed.packageVersion, PACKAGE_VERSION);
+    let installedRuntime: Uint8Array | undefined;
+    try {
+      installedRuntime = await readFile(runtimePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    if (installedRuntime) {
+      if ((await sha256(installedRuntime)) !== installed.sha256) {
+        throw new Error("The installed ios-core service runtime does not match its receipt.");
+      }
+      if (versionOrder >= 0) return runtimePath;
+    } else if (versionOrder > 0) {
+      throw new Error(`Installed ios-core ${installed.packageVersion} runtime is missing.`);
+    }
+  }
   const build = await Bun.build({
     entrypoints: [resolve(import.meta.dir, "service-entry.ts")],
     format: "esm",
@@ -150,25 +173,6 @@ export async function buildServiceRuntime(stateRoot = serviceStateRoot()): Promi
   if (!output) throw new Error("ios-core service runtime build produced no output.");
   const contents = new Uint8Array(await output.arrayBuffer());
   const digest = await sha256(contents);
-  let installed: RuntimeReceipt | undefined;
-  try {
-    installed = JSON.parse(await readFile(receiptPath, "utf8")) as RuntimeReceipt;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-  if (installed) {
-    const versionOrder = compareVersions(installed.packageVersion, PACKAGE_VERSION);
-    if (versionOrder >= 0 && !(await Bun.file(runtimePath).exists())) {
-      throw new Error(`Installed ios-core ${installed.packageVersion} runtime is missing.`);
-    }
-    if (versionOrder > 0) return runtimePath;
-    if (versionOrder === 0 && installed.sha256 !== digest) {
-      throw new Error(
-        `Installed ios-core ${PACKAGE_VERSION} has different code. Publish a new package version before replacing it.`,
-      );
-    }
-    if (versionOrder === 0) return runtimePath;
-  }
   const temporaryRuntime = `${runtimePath}.${process.pid}.tmp`;
   await writeFile(temporaryRuntime, contents);
   await rename(temporaryRuntime, runtimePath);

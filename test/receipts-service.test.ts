@@ -189,12 +189,15 @@ describe("multi-app service", () => {
     try {
       const runtimePath = await buildServiceRuntime(root);
       expect(await Bun.file(runtimePath).exists()).toBeTrue();
+      expect(await buildServiceRuntime(root)).toBe(runtimePath);
       expect(
         JSON.parse(await readFile(resolve(root, "runtime/receipt.json"), "utf8")),
       ).toMatchObject({
         schemaVersion: 1,
-        packageVersion: "0.1.1",
+        packageVersion: "0.1.2",
       });
+      await writeFile(runtimePath, "tampered");
+      await expect(buildServiceRuntime(root)).rejects.toThrow("does not match its receipt");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
