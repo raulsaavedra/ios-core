@@ -7,16 +7,31 @@ import { decodeProvisioningProfile, type ProvisioningProfile } from "./profiles"
 import type { Command, IOSCoreConfig } from "./types";
 import type { XcodeApplicationSettings } from "./xcode";
 
-interface ArchiveInfo {
-  ApplicationProperties?: {
-    ApplicationPath?: string;
-    Architectures?: string[];
-    CFBundleIdentifier?: string;
-    CFBundleShortVersionString?: string;
-    CFBundleVersion?: string;
-    SigningIdentity?: string;
-    Team?: string;
-  };
+export interface ArchiveProperties {
+  ApplicationPath?: string;
+  Architectures?: string[];
+  CFBundleIdentifier?: string;
+  CFBundleShortVersionString?: string;
+  CFBundleVersion?: string;
+  SigningIdentity?: string;
+  Team?: string;
+}
+
+export async function readArchiveProperties(
+  archiveInfoPath: string,
+  runner: CommandRunner,
+): Promise<ArchiveProperties> {
+  return JSON.parse(
+    await runner.capture([
+      "plutil",
+      "-extract",
+      "ApplicationProperties",
+      "json",
+      "-o",
+      "-",
+      archiveInfoPath,
+    ]),
+  ) as ArchiveProperties;
 }
 
 interface DistributionEntry {
@@ -132,10 +147,8 @@ export async function verifyExport(options: {
     if (!app) throw new Error("Application bundle disappeared while verifying it.");
     const appPath = resolve(payloadPath, app.name);
     const infoPath = resolve(appPath, "Info.plist");
-    const archiveInfo = await readPlist<ArchiveInfo>(archiveInfoPath, runner);
     const appInfo = await readPlist<Record<string, unknown>>(infoPath, runner);
-    const archive = archiveInfo.ApplicationProperties;
-    if (!archive) throw new Error("Archive metadata is missing ApplicationProperties.");
+    const archive = await readArchiveProperties(archiveInfoPath, runner);
 
     assertEqual(
       archive.CFBundleIdentifier,
