@@ -8,7 +8,7 @@ import { systemRunner } from "./process";
 import { writeJSONAtomic } from "./receipts";
 import type { RegisteredApplication, ServiceRegistry } from "./types";
 
-const PACKAGE_VERSION = "0.1.0";
+const PACKAGE_VERSION = "0.1.1";
 const LABEL = "com.raulsaavedra.ios-core";
 
 interface RuntimeReceipt {
@@ -201,6 +201,7 @@ export function renderLaunchAgent(options: {
   <key>WorkingDirectory</key><string>${xmlEscape(options.stateRoot)}</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
+  <key>LimitLoadToSessionType</key><string>Background</string>
   <key>ProcessType</key><string>Background</string>
   <key>StandardOutPath</key><string>${xmlEscape(resolve(options.stateRoot, "service.log"))}</string>
   <key>StandardErrorPath</key><string>${xmlEscape(resolve(options.stateRoot, "service.error.log"))}</string>
@@ -212,7 +213,7 @@ export function renderLaunchAgent(options: {
 function serviceTarget(): string {
   const uid = process.getuid?.();
   if (uid === undefined) throw new Error("ios-core service installation requires a user domain.");
-  return `gui/${uid}/${LABEL}`;
+  return `user/${uid}/${LABEL}`;
 }
 
 async function activateLaunchAgent(plistPath: string, runner: CommandRunner): Promise<void> {
@@ -222,7 +223,7 @@ async function activateLaunchAgent(plistPath: string, runner: CommandRunner): Pr
   }
   const uid = process.getuid?.();
   if (uid === undefined) throw new Error("ios-core service installation requires a user domain.");
-  const domain = `gui/${uid}`;
+  const domain = `user/${uid}`;
   await runner.run(["launchctl", "bootstrap", domain, plistPath]);
   await runner.run(["launchctl", "kickstart", "-k", target]);
 }

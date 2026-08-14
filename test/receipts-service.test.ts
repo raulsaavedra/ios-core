@@ -175,6 +175,8 @@ describe("multi-app service", () => {
       });
       await writeFile(plistPath, plist);
       expect(plist).toContain("com.raulsaavedra.ios-core");
+      expect(plist).toContain("LimitLoadToSessionType");
+      expect(plist).toContain("<string>Background</string>");
       expect(plist).not.toContain("node_modules");
       expect(Bun.spawnSync(["plutil", "-lint", plistPath]).exitCode).toBe(0);
     } finally {
@@ -191,7 +193,7 @@ describe("multi-app service", () => {
         JSON.parse(await readFile(resolve(root, "runtime/receipt.json"), "utf8")),
       ).toMatchObject({
         schemaVersion: 1,
-        packageVersion: "0.1.0",
+        packageVersion: "0.1.1",
       });
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -265,6 +267,7 @@ describe("multi-app service", () => {
       ).rejects.toThrow("kickstart failed");
       expect(loaded).toBeFalse();
       expect(commands.some((command) => command[1] === "bootout")).toBeTrue();
+      expect(commands.some((command) => command.includes(`user/${process.getuid?.()}`))).toBeTrue();
       expect(await Bun.file(resolve(root, "registry.json")).exists()).toBeFalse();
       expect(await Bun.file(resolve(root, "runtime/service.js")).exists()).toBeFalse();
       expect(
