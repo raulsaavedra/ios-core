@@ -16,8 +16,8 @@ export default defineConfig({
   sourceChecks: [["bun", "test"]],
   signing: { teamIdentifier: "5XUYZHSMGZ" },
   distribution: {
-    publicBaseURL: "https://mac.example.ts.net:8445",
-    localPort: 38447,
+    publicBaseURL: "https://mac.example.ts.net:8448",
+    localPort: 38449,
   },
 });
 ```
@@ -29,5 +29,5 @@ ios-core archive
 ios-core release
 ```
 
-Releases automatically keep the copied multi-app OTA service registered and running through
-`com.raulsaavedra.ios-core`.
+Releases register the app in one persistent installer catalog managed by
+`com.raulsaavedra.ios-core`. Every app on the machine uses the same distribution endpoint.

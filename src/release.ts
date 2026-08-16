@@ -76,12 +76,14 @@ export async function smokeRelease(options: {
   fetcher?: typeof fetch;
   requestBaseURL: string;
   publicBaseURL: string;
+  application: RegisteredApplication;
   receipt: ReleaseReceipt;
   includeInstaller: boolean;
 }): Promise<void> {
   const fetcher = options.fetcher ?? fetch;
-  const releaseBaseURL = `${options.requestBaseURL}/releases/${options.receipt.build}`;
-  const publicReleaseBaseURL = `${options.publicBaseURL}/releases/${options.receipt.build}`;
+  const applicationPath = `/apps/${encodeURIComponent(options.application.id)}`;
+  const releaseBaseURL = `${options.requestBaseURL}${applicationPath}/releases/${options.receipt.build}`;
+  const publicReleaseBaseURL = `${options.publicBaseURL}${applicationPath}/releases/${options.receipt.build}`;
   const servedReceipt = parseReleaseReceipt(
     await (await fetchRequired(fetcher, `${releaseBaseURL}/release.json`)).json(),
     options.receipt.build,
@@ -115,9 +117,15 @@ export async function smokeRelease(options: {
     throw new Error(`Release ${options.receipt.build} does not support IPA byte ranges.`);
   }
   if (options.includeInstaller) {
-    const installer = await (await fetchRequired(fetcher, `${options.requestBaseURL}/`)).text();
+    const installer = await (
+      await fetchRequired(fetcher, `${options.requestBaseURL}${applicationPath}/`)
+    ).text();
     if (!installer.includes(`build ${options.receipt.build}`)) {
       throw new Error(`Installer does not advertise Build ${options.receipt.build}.`);
+    }
+    const catalog = await (await fetchRequired(fetcher, `${options.requestBaseURL}/`)).text();
+    if (!catalog.includes(options.application.displayName)) {
+      throw new Error(`Installer catalog does not list ${options.application.displayName}.`);
     }
   }
 }
@@ -126,6 +134,7 @@ async function waitForLocalRelease(
   fetcher: typeof fetch,
   localBaseURL: string,
   publicBaseURL: string,
+  application: RegisteredApplication,
   receipt: ReleaseReceipt,
 ): Promise<void> {
   let lastError: unknown;
@@ -135,6 +144,7 @@ async function waitForLocalRelease(
         fetcher,
         requestBaseURL: localBaseURL,
         publicBaseURL,
+        application,
         receipt,
         includeInstaller: false,
       });
@@ -300,15 +310,14 @@ export async function publishRelease(options: {
 
       await verifyArtifactIntegrity(options.distribution.releasesRoot, receipt);
 
-      await dependencies.installService(
-        registeredApplication(options.config, options.distribution),
-        dependencies.runner,
-      );
+      const application = registeredApplication(options.config, options.distribution);
+      await dependencies.installService(application, dependencies.runner);
       const localBaseURL = `http://127.0.0.1:${options.distribution.localPort}`;
       await waitForLocalRelease(
         dependencies.fetch,
         localBaseURL,
         options.distribution.publicBaseURL,
+        application,
         receipt,
       );
 
@@ -319,6 +328,7 @@ export async function publishRelease(options: {
           fetcher: dependencies.fetch,
           requestBaseURL: options.distribution.publicBaseURL,
           publicBaseURL: options.distribution.publicBaseURL,
+          application,
           receipt,
           includeInstaller: true,
         });

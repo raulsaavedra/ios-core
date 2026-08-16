@@ -9,8 +9,6 @@ const registryPath = arguments_[1];
 if (!registryPath) throw new Error("The service registry path is required.");
 const registry = parseServiceRegistry(JSON.parse(await readFile(registryPath, "utf8")));
 const servers = startRegisteredApplications(registry);
-for (const [index, server] of servers.entries()) {
-  const application = registry.applications[index];
-  if (!application) throw new Error(`Missing application for service listener ${index}.`);
-  console.log(`${application.displayName} OTA listening on ${server.url}`);
-}
+const server = servers[0];
+if (!server) throw new Error("The shared installer listener did not start.");
+console.log(`Shared iOS installer listening on ${server.url}`);

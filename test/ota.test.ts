@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { createOTAHandler } from "../src/ota";
+import { createGlobalOTAHandler, createOTAHandler } from "../src/ota";
 import type { RegisteredApplication, ReleaseReceipt } from "../src/types";
 
 describe("OTA handler", () => {
@@ -59,13 +59,70 @@ describe("OTA handler", () => {
     expect(html).toContain("Field Guide");
     expect(html).toContain("build 29");
     expect(html).toContain(
-      "https%3A%2F%2Fmac.example.test%3A8445%2Freleases%2F29%2Fmanifest.plist",
+      "https%3A%2F%2Fmac.example.test%3A8445%2Fapps%2Ffield-guide%2Freleases%2F29%2Fmanifest.plist",
     );
     const manifest = await (await request("/releases/29/manifest.plist")).text();
     expect(manifest).toContain("com.raulsaavedra.fieldguide");
     expect(manifest).toContain(
-      "https://mac.example.test:8445/releases/29/export/Field%20Guide.ipa",
+      "https://mac.example.test:8445/apps/field-guide/releases/29/export/Field%20Guide.ipa",
     );
+  });
+
+  test("serves a shared catalog and app-namespaced release routes", async () => {
+    await writeRelease(29, "0123456789");
+    await writeFile(resolve(root, "current.json"), '{"build":29}\n');
+    const fitnessRoot = await mkdtemp(resolve(tmpdir(), "ios-core-fitness-"));
+    const fitness: RegisteredApplication = {
+      id: "fitness",
+      displayName: "Fitness",
+      bundleIdentifier: "com.raulsaavedra.fitness",
+      releasesRoot: fitnessRoot,
+      publicBaseURL: application.publicBaseURL,
+      localPort: application.localPort,
+    };
+    try {
+      const fitnessReceipt: ReleaseReceipt = {
+        version: "1.0.0",
+        build: 46,
+        bundleIdentifier: fitness.bundleIdentifier,
+        ipaRelativePath: "export/Fitness.ipa",
+        sha256: "f".repeat(64),
+        size: 3,
+        profileUUID: "PROFILE",
+        publishedAt: "2026-08-16T00:00:00.000Z",
+      };
+      await mkdir(resolve(fitnessRoot, "46/export"), { recursive: true });
+      await writeFile(resolve(fitnessRoot, "46/release.json"), JSON.stringify(fitnessReceipt));
+      await writeFile(resolve(fitnessRoot, "46/export/Fitness.ipa"), "fit");
+      await writeFile(resolve(fitnessRoot, "current.json"), '{"build":46}\n');
+      const handler = createGlobalOTAHandler({
+        schemaVersion: 1,
+        applications: [fitness, application],
+      });
+      const requestGlobal = (path: string, init?: RequestInit) =>
+        handler(new Request(new URL(path, "http://localhost").toString(), init));
+      const catalog = await (await requestGlobal("/")).text();
+      expect(catalog).toContain("Fitness");
+      expect(catalog).toContain("Field Guide");
+      expect(catalog.match(/itms-services:\/\//g)).toHaveLength(2);
+      expect(await (await requestGlobal("/apps/fitness/release.json")).json()).toMatchObject({
+        build: 46,
+      });
+      expect(
+        await (
+          await requestGlobal("/apps/field-guide/releases/29/export/Field%20Guide.ipa")
+        ).text(),
+      ).toBe("0123456789");
+      expect(await (await requestGlobal("/healthz")).json()).toEqual({
+        ok: true,
+        applications: [
+          { appId: "fitness", bundleIdentifier: "com.raulsaavedra.fitness" },
+          { appId: "field-guide", bundleIdentifier: "com.raulsaavedra.fieldguide" },
+        ],
+      });
+    } finally {
+      await rm(fitnessRoot, { recursive: true, force: true });
+    }
   });
 
   test("identifies the package-owned application without release state", async () => {

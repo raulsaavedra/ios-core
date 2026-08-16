@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { assertArtifactMatchesReceipt, readReleaseReceipt } from "./receipts";
-import type { RegisteredApplication, ReleaseReceipt } from "./types";
+import type { RegisteredApplication, ReleaseReceipt, ServiceRegistry } from "./types";
 
 interface ByteRange {
   start: number;
@@ -29,15 +29,26 @@ function versionedURL(baseURL: URL, pathname: string): URL {
   return url;
 }
 
+function applicationPath(application: RegisteredApplication): string {
+  return `/apps/${encodeURIComponent(application.id)}`;
+}
+
+function applicationBaseURL(application: RegisteredApplication): URL {
+  return versionedURL(new URL(application.publicBaseURL), applicationPath(application));
+}
+
+function installURL(application: RegisteredApplication, receipt: ReleaseReceipt): string {
+  const manifestURL = versionedURL(
+    applicationBaseURL(application),
+    `/releases/${receipt.build}/manifest.plist`,
+  ).toString();
+  return `itms-services://?action=download-manifest&url=${encodeURIComponent(manifestURL)}`;
+}
+
 export function renderInstaller(
   application: RegisteredApplication,
   receipt: ReleaseReceipt,
 ): string {
-  const manifestURL = versionedURL(
-    new URL(application.publicBaseURL),
-    `/releases/${receipt.build}/manifest.plist`,
-  ).toString();
-  const installURL = `itms-services://?action=download-manifest&url=${encodeURIComponent(manifestURL)}`;
   const description = application.installerDescription
     ? `<p>${htmlEscape(application.installerDescription)}</p>`
     : "";
@@ -61,8 +72,62 @@ export function renderInstaller(
   <main>
     <h1>${htmlEscape(application.displayName)}</h1>
     ${description}
-    <a href="${htmlEscape(installURL)}">Install version ${htmlEscape(receipt.version)}, build ${receipt.build}</a>
+    <a href="${htmlEscape(installURL(application, receipt))}">Install version ${htmlEscape(receipt.version)}, build ${receipt.build}</a>
     <small>Keep Tailscale connected until installation completes.</small>
+  </main>
+</body>
+</html>
+`;
+}
+
+export async function renderInstallerCatalog(
+  applications: RegisteredApplication[],
+): Promise<string> {
+  const cards = await Promise.all(
+    applications.map(async (application) => {
+      try {
+        const receipt = await readCurrentReceipt(application);
+        const description = application.installerDescription
+          ? `<p>${htmlEscape(application.installerDescription)}</p>`
+          : "";
+        return `<article>
+      <div><h2>${htmlEscape(application.displayName)}</h2>${description}<small>Version ${htmlEscape(receipt.version)} &middot; Build ${receipt.build}</small></div>
+      <a href="${htmlEscape(installURL(application, receipt))}">Install</a>
+    </article>`;
+      } catch {
+        return `<article class="unavailable"><div><h2>${htmlEscape(application.displayName)}</h2><p>Release unavailable.</p></div></article>`;
+      }
+    }),
+  );
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Install apps</title>
+  <style>
+    :root { color-scheme: light; font-family: ui-rounded, "SF Pro Rounded", sans-serif; background: #e8ede9; color: #173128; }
+    body { min-height: 100svh; margin: 0; padding: 28px 20px; box-sizing: border-box; background: radial-gradient(circle at 15% 0%, #d5e5d6, transparent 45%), linear-gradient(145deg, #eef3ef, #e5ebe7); }
+    main { width: min(100%, 680px); margin: 0 auto; }
+    header { padding: 32px 4px 26px; }
+    h1 { margin: 0 0 10px; font-family: Georgia, serif; font-size: clamp(38px, 9vw, 58px); line-height: .98; }
+    header p { margin: 0; color: #52675e; font-size: 17px; }
+    section { display: grid; gap: 14px; }
+    article { display: flex; align-items: center; justify-content: space-between; gap: 22px; padding: 24px; border: 1px solid #b8c7bd; border-radius: 24px; background: rgba(255,255,255,.82); box-shadow: 0 14px 35px rgba(23,49,40,.09); }
+    h2 { margin: 0 0 5px; font-family: Georgia, serif; font-size: 27px; }
+    article p, small { margin: 0; color: #607269; line-height: 1.4; }
+    small { display: block; margin-top: 9px; }
+    a { flex: 0 0 auto; padding: 13px 20px; border-radius: 14px; background: #173128; color: white; font-weight: 750; text-decoration: none; }
+    .unavailable { opacity: .65; }
+    footer { padding: 22px 4px; color: #687a71; font-size: 13px; }
+    @media (max-width: 480px) { article { align-items: stretch; flex-direction: column; } a { text-align: center; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header><h1>Raul's apps</h1><p>Private builds, ready to install.</p></header>
+    <section>${cards.join("")}</section>
+    <footer>Keep Tailscale connected until installation completes.</footer>
   </main>
 </body>
 </html>
@@ -74,7 +139,7 @@ export function renderManifest(
   receipt: ReleaseReceipt,
 ): string {
   const ipaURL = versionedURL(
-    new URL(application.publicBaseURL),
+    applicationBaseURL(application),
     `/releases/${receipt.build}/${receipt.ipaRelativePath
       .split("/")
       .map(encodeURIComponent)
@@ -285,12 +350,55 @@ export function createOTAHandler(
   };
 }
 
-export function startApplicationServer(
-  application: RegisteredApplication,
-): ReturnType<typeof Bun.serve> {
+export function createGlobalOTAHandler(
+  registry: ServiceRegistry,
+): (request: Request) => Promise<Response> {
+  const applications = new Map(
+    registry.applications.map((application) => [application.id, application]),
+  );
+  return async (request) => {
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
+    }
+    const pathname = safePathname(new URL(request.url));
+    if (pathname === null) return new Response("Not found", { status: 404 });
+    if (pathname === "/healthz") {
+      return textResponse(
+        `${JSON.stringify({
+          ok: true,
+          applications: registry.applications.map(({ id, bundleIdentifier }) => ({
+            appId: id,
+            bundleIdentifier,
+          })),
+        })}\n`,
+        "application/json; charset=utf-8",
+        request.method,
+      );
+    }
+    if (pathname === "/") {
+      return textResponse(
+        await renderInstallerCatalog(registry.applications),
+        "text/html; charset=utf-8",
+        request.method,
+      );
+    }
+    const match = /^\/apps\/([a-z0-9]+(?:-[a-z0-9]+)*)(\/.*)?$/.exec(pathname);
+    if (!match) return new Response("Not found", { status: 404 });
+    const application = applications.get(match[1] ?? "");
+    if (!application) return new Response("Not found", { status: 404 });
+    const applicationPathname = match[2] || "/";
+    const applicationURL = new URL(request.url);
+    applicationURL.pathname = applicationPathname;
+    return createOTAHandler(application)(new Request(applicationURL.toString(), request));
+  };
+}
+
+export function startGlobalServer(registry: ServiceRegistry): ReturnType<typeof Bun.serve> {
+  const application = registry.applications[0];
+  if (!application) throw new Error("ios-core requires at least one registered application.");
   return Bun.serve({
     hostname: "127.0.0.1",
     port: application.localPort,
-    fetch: createOTAHandler(application),
+    fetch: createGlobalOTAHandler(registry),
   });
 }

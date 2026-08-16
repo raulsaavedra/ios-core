@@ -102,8 +102,12 @@ async function main(): Promise<void> {
     console.log(
       isServiceRunning() ? "ios-core service is running." : "ios-core service is stopped.",
     );
-    for (const application of registry.applications) {
-      console.log(`${application.displayName}: ${application.publicBaseURL}/`);
+    const endpoint = registry.applications[0]?.publicBaseURL;
+    if (endpoint) {
+      console.log(`Installer catalog: ${endpoint}/`);
+      for (const application of registry.applications) {
+        console.log(`${application.displayName}: ${endpoint}/apps/${application.id}/`);
+      }
     }
     return;
   }

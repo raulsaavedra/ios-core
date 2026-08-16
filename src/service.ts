@@ -2,13 +2,13 @@ import { realpathSync } from "node:fs";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
-import { startApplicationServer } from "./ota";
+import { startGlobalServer } from "./ota";
 import type { CommandRunner } from "./process";
 import { systemRunner } from "./process";
 import { writeJSONAtomic } from "./receipts";
 import type { RegisteredApplication, ServiceRegistry } from "./types";
 
-const PACKAGE_VERSION = "0.1.4";
+const PACKAGE_VERSION = "0.2.0";
 const LABEL = "com.raulsaavedra.ios-core";
 
 interface RuntimeReceipt {
@@ -25,7 +25,10 @@ export function serviceStateRoot(): string {
   return process.env.IOS_CORE_STATE_ROOT ?? resolve(homedir(), ".local/share/ios-core");
 }
 
-export function parseServiceRegistry(value: unknown): ServiceRegistry {
+export function parseServiceRegistry(
+  value: unknown,
+  options: { allowEndpointMigration?: boolean } = {},
+): ServiceRegistry {
   if (!isRecord(value) || value.schemaVersion !== 1 || !Array.isArray(value.applications)) {
     throw new Error("Invalid ios-core service registry.");
   }
@@ -49,20 +52,20 @@ export function parseServiceRegistry(value: unknown): ServiceRegistry {
     }
   }
   const canonical = applications.map(canonicalApplication);
-  validateRegistryCollisions(canonical);
+  validateRegistryCollisions(canonical, options.allowEndpointMigration ?? false);
   return {
     schemaVersion: 1,
     applications: canonical.sort((a, b) => a.id.localeCompare(b.id)),
   };
 }
 
-function validateRegistryCollisions(applications: RegisteredApplication[]): void {
+function validateRegistryCollisions(
+  applications: RegisteredApplication[],
+  allowEndpointMigration = false,
+): void {
   const uniqueFields: Array<
-    keyof Pick<
-      RegisteredApplication,
-      "id" | "bundleIdentifier" | "localPort" | "publicBaseURL" | "releasesRoot"
-    >
-  > = ["id", "bundleIdentifier", "localPort", "publicBaseURL", "releasesRoot"];
+    keyof Pick<RegisteredApplication, "id" | "bundleIdentifier" | "releasesRoot">
+  > = ["id", "bundleIdentifier", "releasesRoot"];
   for (const field of uniqueFields) {
     const values = new Set<string | number>();
     for (const application of applications) {
@@ -70,6 +73,12 @@ function validateRegistryCollisions(applications: RegisteredApplication[]): void
       if (values.has(value)) throw new Error(`Duplicate service application ${field}: ${value}.`);
       values.add(value);
     }
+  }
+  const endpoints = new Set(
+    applications.map((application) => `${application.publicBaseURL}\n${application.localPort}`),
+  );
+  if (!allowEndpointMigration && endpoints.size > 1) {
+    throw new Error("All service applications must use the shared installer endpoint.");
   }
 }
 
@@ -94,7 +103,12 @@ export function registerApplication(
   const normalized = canonicalApplication(application);
   const applications = registry.applications
     .map(canonicalApplication)
-    .filter((candidate) => candidate.id !== normalized.id);
+    .filter((candidate) => candidate.id !== normalized.id)
+    .map((candidate) => ({
+      ...candidate,
+      publicBaseURL: normalized.publicBaseURL,
+      localPort: normalized.localPort,
+    }));
   applications.push(normalized);
   validateRegistryCollisions(applications);
   return { schemaVersion: 1, applications: applications.sort((a, b) => a.id.localeCompare(b.id)) };
@@ -102,7 +116,9 @@ export function registerApplication(
 
 export async function readServiceRegistry(path: string): Promise<ServiceRegistry> {
   try {
-    return parseServiceRegistry(JSON.parse(await readFile(path, "utf8")));
+    return parseServiceRegistry(JSON.parse(await readFile(path, "utf8")), {
+      allowEndpointMigration: true,
+    });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return { schemaVersion: 1, applications: [] };
@@ -238,45 +254,53 @@ export async function probeServiceApplications(
   attempts = 40,
   sleep: (milliseconds: number) => Promise<unknown> = Bun.sleep,
 ): Promise<void> {
-  for (const application of applications) {
-    let lastError: unknown;
-    for (let attempt = 0; attempt < attempts; attempt += 1) {
-      try {
-        const response = await fetcher(`http://127.0.0.1:${application.localPort}/healthz`, {
-          method: "HEAD",
-          signal: AbortSignal.timeout(2_000),
-        });
-        if (!response.ok) throw new Error(`Health endpoint returned ${response.status}.`);
-        const identityResponse = await fetcher(
-          `http://127.0.0.1:${application.localPort}/healthz`,
-          { signal: AbortSignal.timeout(2_000) },
-        );
-        if (!identityResponse.ok) {
-          throw new Error(`Health identity endpoint returned ${identityResponse.status}.`);
-        }
-        const identity = (await identityResponse.json()) as {
-          appId?: unknown;
-          bundleIdentifier?: unknown;
-        };
-        if (
-          identity.appId !== application.id ||
-          identity.bundleIdentifier !== application.bundleIdentifier
-        ) {
-          throw new Error(`Port ${application.localPort} is owned by a different service.`);
-        }
-        lastError = undefined;
-        break;
-      } catch (error) {
-        lastError = error;
-        await sleep(250);
+  const application = applications[0];
+  if (!application) return;
+  const expected = applications
+    .map(({ id, bundleIdentifier }) => ({ appId: id, bundleIdentifier }))
+    .sort((left, right) => left.appId.localeCompare(right.appId));
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const response = await fetcher(`http://127.0.0.1:${application.localPort}/healthz`, {
+        method: "HEAD",
+        signal: AbortSignal.timeout(2_000),
+      });
+      if (!response.ok) throw new Error(`Health endpoint returned ${response.status}.`);
+      const identityResponse = await fetcher(`http://127.0.0.1:${application.localPort}/healthz`, {
+        signal: AbortSignal.timeout(2_000),
+      });
+      if (!identityResponse.ok) {
+        throw new Error(`Health identity endpoint returned ${identityResponse.status}.`);
       }
+      const identity = (await identityResponse.json()) as {
+        applications?: unknown;
+      };
+      const reported = Array.isArray(identity.applications)
+        ? identity.applications
+            .filter(
+              (candidate): candidate is { appId: string; bundleIdentifier: string } =>
+                isRecord(candidate) &&
+                typeof candidate.appId === "string" &&
+                typeof candidate.bundleIdentifier === "string",
+            )
+            .map(({ appId, bundleIdentifier }) => ({ appId, bundleIdentifier }))
+            .sort((left, right) => left.appId.localeCompare(right.appId))
+        : undefined;
+      if (JSON.stringify(reported) !== JSON.stringify(expected)) {
+        throw new Error(`Port ${application.localPort} reported the wrong service registry.`);
+      }
+      lastError = undefined;
+      break;
+    } catch (error) {
+      lastError = error;
+      await sleep(250);
     }
-    if (lastError !== undefined) {
-      throw new Error(
-        `${application.displayName} service listener did not start on port ${application.localPort}.`,
-        { cause: lastError },
-      );
-    }
+  }
+  if (lastError !== undefined) {
+    throw new Error(`ios-core service listener did not start on port ${application.localPort}.`, {
+      cause: lastError,
+    });
   }
 }
 
@@ -381,5 +405,5 @@ export function isServiceRunning(runner: CommandRunner = systemRunner): boolean 
 export function startRegisteredApplications(
   registry: ServiceRegistry,
 ): ReturnType<typeof Bun.serve>[] {
-  return registry.applications.map(startApplicationServer);
+  return [startGlobalServer(registry)];
 }

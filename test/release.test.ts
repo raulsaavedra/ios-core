@@ -61,7 +61,7 @@ function releaseFetch(root: string, failPublicInstaller = false): typeof fetch {
       typeof input === "string" || input instanceof URL ? input.toString() : input.url,
     );
     const method = init?.method ?? (input instanceof Request ? input.method : "GET");
-    const receiptMatch = /^\/releases\/(\d+)\/release\.json$/.exec(url.pathname);
+    const receiptMatch = /^\/apps\/field-guide\/releases\/(\d+)\/release\.json$/.exec(url.pathname);
     if (receiptMatch) {
       const build = receiptMatch[1];
       if (!build) return new Response("missing", { status: 404 });
@@ -69,7 +69,9 @@ function releaseFetch(root: string, failPublicInstaller = false): typeof fetch {
         headers: { "Content-Type": "application/json" },
       });
     }
-    const manifestMatch = /^\/releases\/(\d+)\/manifest\.plist$/.exec(url.pathname);
+    const manifestMatch = /^\/apps\/field-guide\/releases\/(\d+)\/manifest\.plist$/.exec(
+      url.pathname,
+    );
     if (manifestMatch) {
       const build = manifestMatch[1];
       if (!build) return new Response("missing", { status: 404 });
@@ -77,7 +79,7 @@ function releaseFetch(root: string, failPublicInstaller = false): typeof fetch {
         await readFile(resolve(root, build, "release.json"), "utf8"),
       ) as ReleaseReceipt;
       return new Response(
-        `<string>${receipt.bundleIdentifier}</string><string>${receipt.build}</string><string>https://mac.example.test:8445/releases/${receipt.build}/${receipt.ipaRelativePath}</string>`,
+        `<string>${receipt.bundleIdentifier}</string><string>${receipt.build}</string><string>https://mac.example.test:8445/apps/field-guide/releases/${receipt.build}/${receipt.ipaRelativePath}</string>`,
       );
     }
     if (url.pathname.endsWith(".ipa")) {
@@ -88,10 +90,11 @@ function releaseFetch(root: string, failPublicInstaller = false): typeof fetch {
         headers: { "Content-Length": "3" },
       });
     }
-    if (url.pathname === "/") {
+    if (url.pathname === "/apps/field-guide/" || url.pathname === "/") {
       if (failPublicInstaller && url.hostname !== "127.0.0.1") {
         return new Response("failed", { status: 500 });
       }
+      if (url.pathname === "/") return new Response("Field Guide");
       const current = JSON.parse(await readFile(resolve(root, "current.json"), "utf8")) as {
         build: number;
       };

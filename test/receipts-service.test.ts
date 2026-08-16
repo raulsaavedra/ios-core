@@ -79,7 +79,7 @@ describe("release receipts", () => {
 });
 
 describe("multi-app service", () => {
-  test("preserves siblings and rejects identity or listener collisions", () => {
+  test("preserves siblings, moves them to the shared endpoint, and rejects identity collisions", () => {
     const initial = { schemaVersion: 1 as const, applications: [application()] };
     const fitness = application({
       id: "fitness",
@@ -89,34 +89,12 @@ describe("multi-app service", () => {
       publicBaseURL: "https://mac.example.test:8446",
       localPort: 38_446,
     });
-    expect(registerApplication(initial, fitness).applications.map((app) => app.id)).toEqual([
-      "field-guide",
-      "fitness",
-    ]);
-    expect(() =>
-      registerApplication(
-        initial,
-        application({
-          id: "other",
-          bundleIdentifier: "com.raulsaavedra.other",
-          publicBaseURL: "https://mac.example.test:8447",
-          localPort: 38_447,
-          releasesRoot: "/tmp/other-releases",
-        }),
-      ),
-    ).toThrow("localPort");
-    expect(() =>
-      registerApplication(
-        initial,
-        application({
-          id: "other",
-          bundleIdentifier: "com.raulsaavedra.other",
-          publicBaseURL: "https://mac.example.test:8445",
-          localPort: 38_448,
-          releasesRoot: "/tmp/other-releases",
-        }),
-      ),
-    ).toThrow("publicBaseURL");
+    const registered = registerApplication(initial, fitness);
+    expect(registered.applications.map((app) => app.id)).toEqual(["field-guide", "fitness"]);
+    expect(registered.applications.every((app) => app.localPort === 38_446)).toBeTrue();
+    expect(
+      registered.applications.every((app) => app.publicBaseURL === "https://mac.example.test:8446"),
+    ).toBeTrue();
     expect(() =>
       registerApplication(
         initial,
@@ -161,6 +139,21 @@ describe("multi-app service", () => {
         applications: [application({ publicBaseURL: "http://example.test" })],
       }),
     ).toThrow("Invalid application");
+    expect(() =>
+      parseServiceRegistry({
+        schemaVersion: 1,
+        applications: [
+          application(),
+          application({
+            id: "fitness",
+            bundleIdentifier: "com.raulsaavedra.fitness",
+            releasesRoot: "/tmp/fitness-releases",
+            publicBaseURL: "https://mac.example.test:8446",
+            localPort: 38_446,
+          }),
+        ],
+      }),
+    ).toThrow("shared installer endpoint");
   });
 
   test("renders absolute package-managed LaunchAgent paths", async () => {
@@ -194,7 +187,7 @@ describe("multi-app service", () => {
         JSON.parse(await readFile(resolve(root, "runtime/receipt.json"), "utf8")),
       ).toMatchObject({
         schemaVersion: 1,
-        packageVersion: "0.1.4",
+        packageVersion: "0.2.0",
       });
       await writeFile(runtimePath, "tampered");
       await expect(buildServiceRuntime(root)).rejects.toThrow("does not match its receipt");
@@ -213,8 +206,7 @@ describe("multi-app service", () => {
         if (init?.method === "HEAD") return new Response(null);
         return Response.json({
           ok: true,
-          appId: "field-guide",
-          bundleIdentifier: "com.raulsaavedra.fieldguide",
+          applications: [{ appId: "field-guide", bundleIdentifier: "com.raulsaavedra.fieldguide" }],
         });
       }) as unknown as typeof fetch,
       2,
