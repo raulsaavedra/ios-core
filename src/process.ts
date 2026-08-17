@@ -17,11 +17,24 @@ function commandText(command: Command): string {
   return command.map((part) => JSON.stringify(part)).join(" ");
 }
 
+const SYSTEM_TOOL_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
+
+export function buildProcessEnvironment(
+  base: NodeJS.ProcessEnv,
+  overrides: Record<string, string> = {},
+): Record<string, string | undefined> {
+  const environment = { ...base, ...overrides };
+  environment.PATH = environment.PATH
+    ? `${SYSTEM_TOOL_PATH}:${environment.PATH}`
+    : SYSTEM_TOOL_PATH;
+  return environment;
+}
+
 export const systemRunner: CommandRunner = {
   async run(command, options = {}) {
     const subprocess = Bun.spawn([...command], {
       ...(options.cwd ? { cwd: options.cwd } : {}),
-      env: { ...process.env, ...options.environment },
+      env: buildProcessEnvironment(process.env, options.environment),
       stdin: new Blob([options.input ?? ""]),
       stdout: "inherit",
       stderr: "inherit",
@@ -33,7 +46,7 @@ export const systemRunner: CommandRunner = {
   async capture(command, options = {}) {
     const subprocess = Bun.spawn([...command], {
       ...(options.cwd ? { cwd: options.cwd } : {}),
-      env: { ...process.env, ...options.environment },
+      env: buildProcessEnvironment(process.env, options.environment),
       stdin: new Blob([options.input ?? ""]),
       stdout: "pipe",
       stderr: "pipe",
@@ -55,7 +68,7 @@ export const systemRunner: CommandRunner = {
     return (
       Bun.spawnSync([...command], {
         ...(options.cwd ? { cwd: options.cwd } : {}),
-        env: { ...process.env, ...options.environment },
+        env: buildProcessEnvironment(process.env, options.environment),
         stdin: "ignore",
         stdout: "ignore",
         stderr: "ignore",
