@@ -7,6 +7,7 @@ import {
   expoStartCommand,
   parseApplicationBuildSettings,
   prebuildExpoProject,
+  readApplicationBuildSettings,
   resolveDevelopmentDevice,
 } from "../src/expo";
 import { renderExportOptions } from "../src/plist";
@@ -46,6 +47,29 @@ describe("Expo native project", () => {
       productName: "FieldGuide",
       deploymentTarget: "18.0",
     });
+  });
+
+  test("uses the Expo product version when reading generated Xcode settings", async () => {
+    const commands: string[][] = [];
+    await readApplicationBuildSettings(
+      testConfig(),
+      "/tmp/reptile-world",
+      {
+        projectRoot: "/tmp/reptile-world/apps/mobile",
+        iosDirectory: "/tmp/reptile-world/apps/mobile/ios",
+        workspacePath: "/tmp/reptile-world/apps/mobile/ios/ReptileWorld.xcworkspace",
+        scheme: "ReptileWorld",
+      },
+      "2.0.0",
+      fakeRunner({
+        capture: (command) => {
+          commands.push([...command]);
+          return JSON.stringify([{ target: "FieldGuide", buildSettings: appSettings }]);
+        },
+      }),
+    );
+
+    expect(commands[0]).toContain("MARKETING_VERSION=2.0.0");
   });
 
   test("runs clean prebuild and pod install with argv-safe paths", async () => {

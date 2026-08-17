@@ -221,6 +221,7 @@ export async function readApplicationBuildSettings(
   config: IOSCoreConfig,
   _root: string,
   nativeProject: ExpoNativeProject,
+  marketingVersion: string,
   runner: CommandRunner = systemRunner,
 ): Promise<XcodeApplicationSettings> {
   const output = await runner.capture(
@@ -234,6 +235,7 @@ export async function readApplicationBuildSettings(
       nativeProject.scheme,
       "-configuration",
       "Release",
+      `MARKETING_VERSION=${marketingVersion}`,
     ],
     { cwd: nativeProject.projectRoot },
   );
@@ -319,9 +321,8 @@ export async function readExpoProjectSettings(
   nativeProject: ExpoNativeProject,
   runner: CommandRunner = systemRunner,
 ): Promise<ExpoProjectSettings> {
-  const [appConfig, nativeSettings, nativeFingerprint] = await Promise.all([
+  const [appConfig, nativeFingerprint] = await Promise.all([
     readExpoAppConfig(config, root, runner),
-    readApplicationBuildSettings(config, root, nativeProject, runner),
     createNativeFingerprint(config, root),
   ]);
   const bundleIdentifier = assertNonEmptyString(
@@ -333,12 +334,14 @@ export async function readExpoProjectSettings(
       `Expo bundle identifier ${bundleIdentifier} does not match ios-core ${config.app.bundleIdentifier}.`,
     );
   }
-  const version = assertNonEmptyString(appConfig.version ?? nativeSettings.version, "version");
-  if (version !== nativeSettings.version) {
-    throw new Error(
-      `Expo version ${version} does not match generated iOS settings ${nativeSettings.version}.`,
-    );
-  }
+  const version = assertNonEmptyString(appConfig.version, "version");
+  const nativeSettings = await readApplicationBuildSettings(
+    config,
+    root,
+    nativeProject,
+    version,
+    runner,
+  );
   return {
     ...nativeProject,
     ...nativeSettings,

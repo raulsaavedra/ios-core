@@ -93,6 +93,7 @@ export async function createArchive(options: {
       "-archivePath",
       archivePath,
       `CURRENT_PROJECT_VERSION=${build}`,
+      `MARKETING_VERSION=${settings.version}`,
       `DEVELOPMENT_TEAM=${options.config.signing.teamIdentifier}`,
       "CODE_SIGN_STYLE=Manual",
       `CODE_SIGN_IDENTITY=${identity}`,
