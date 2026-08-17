@@ -187,7 +187,7 @@ describe("multi-app service", () => {
         JSON.parse(await readFile(resolve(root, "runtime/receipt.json"), "utf8")),
       ).toMatchObject({
         schemaVersion: 1,
-        packageVersion: "0.2.0",
+        packageVersion: "0.3.0",
       });
       await writeFile(runtimePath, "tampered");
       await expect(buildServiceRuntime(root)).rejects.toThrow("does not match its receipt");

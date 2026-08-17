@@ -2,7 +2,13 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { findConfigPath, loadConfig, resolveDistribution, validateConfig } from "../src/config";
+import {
+  findConfigPath,
+  loadConfig,
+  resolveDistribution,
+  resolveExpoProjectRoot,
+  validateConfig,
+} from "../src/config";
 import { testConfig } from "./support";
 
 const originalEnvironment = { ...process.env };
@@ -16,19 +22,36 @@ describe("configuration", () => {
     expect(validateConfig(testConfig())).toEqual(testConfig());
   });
 
-  test("accepts a workspace instead of a project", () => {
-    const config = testConfig({
-      xcode: { workspace: "apps/ios/App.xcworkspace", scheme: "App" },
-    });
-    expect(validateConfig(config).xcode.workspace).toBe("apps/ios/App.xcworkspace");
+  test("resolves the Expo project relative to the config root", () => {
+    const config = testConfig({ expo: { projectRoot: "apps/mobile", packageManager: "bun" } });
+    expect(resolveExpoProjectRoot(validateConfig(config), "/tmp/field-guide")).toBe(
+      "/tmp/field-guide/apps/mobile",
+    );
   });
 
-  test("rejects container ambiguity, insecure distribution, bad ports, and unknown keys", () => {
-    const ambiguous = {
-      ...testConfig(),
-      xcode: { project: "App.xcodeproj", workspace: "App.xcworkspace", scheme: "App" },
-    };
-    expect(() => validateConfig(ambiguous)).toThrow("exactly one");
+  test("allows an internal directory whose name starts with two dots", () => {
+    const config = testConfig({ expo: { projectRoot: "..mobile", packageManager: "bun" } });
+    expect(resolveExpoProjectRoot(validateConfig(config), "/tmp/field-guide")).toBe(
+      "/tmp/field-guide/..mobile",
+    );
+  });
+
+  test("rejects absolute project roots, insecure distribution, bad ports, and unknown keys", () => {
+    expect(() => validateConfig(testConfig({ expo: { projectRoot: "/tmp/app" } }))).toThrow(
+      "relative",
+    );
+    expect(() =>
+      validateConfig({
+        ...testConfig(),
+        xcode: { project: "App.xcodeproj", scheme: "App" },
+      }),
+    ).toThrow("unknown fields");
+    expect(() =>
+      resolveExpoProjectRoot(
+        testConfig({ expo: { projectRoot: "../outside" } }),
+        "/tmp/field-guide",
+      ),
+    ).toThrow("remain inside");
     expect(() =>
       validateConfig(
         testConfig({ distribution: { publicBaseURL: "http://example.test", localPort: 1 } }),

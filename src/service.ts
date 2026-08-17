@@ -8,7 +8,7 @@ import { systemRunner } from "./process";
 import { writeJSONAtomic } from "./receipts";
 import type { RegisteredApplication, ServiceRegistry } from "./types";
 
-const PACKAGE_VERSION = "0.2.0";
+const PACKAGE_VERSION = "0.3.0";
 const LABEL = "com.raulsaavedra.ios-core";
 
 interface RuntimeReceipt {

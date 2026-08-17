@@ -1,6 +1,7 @@
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import { createArchive } from "./archive";
+import { prebuildExpoProject, readExpoProjectSettings } from "./expo";
 import type { CommandRunner } from "./process";
 import { systemRunner } from "./process";
 import {
@@ -19,7 +20,6 @@ import type {
   ReleaseReceipt,
   ResolvedDistribution,
 } from "./types";
-import { readApplicationBuildSettings } from "./xcode";
 
 export interface ReleaseOptions {
   build?: number;
@@ -34,6 +34,8 @@ export interface ReleaseResult {
 export interface ReleaseDependencies {
   runner: CommandRunner;
   archive: typeof createArchive;
+  prebuild: typeof prebuildExpoProject;
+  readSettings: typeof readExpoProjectSettings;
   installService: typeof installApplicationService;
   fetch: typeof fetch;
   now: () => Date;
@@ -42,6 +44,8 @@ export interface ReleaseDependencies {
 const defaultDependencies: ReleaseDependencies = {
   runner: systemRunner,
   archive: createArchive,
+  prebuild: prebuildExpoProject,
+  readSettings: readExpoProjectSettings,
   installService: installApplicationService,
   fetch,
   now: () => new Date(),
@@ -259,9 +263,15 @@ export async function publishRelease(options: {
       await dependencies.runner.run(command, { cwd: options.root });
     }
 
-    const settings = await readApplicationBuildSettings(
+    const nativeProject = await dependencies.prebuild(
       options.config,
       options.root,
+      dependencies.runner,
+    );
+    const settings = await dependencies.readSettings(
+      options.config,
+      options.root,
+      nativeProject,
       dependencies.runner,
     );
     const build = options.release?.build ?? determineNextBuild(settings.build, existingBuilds);

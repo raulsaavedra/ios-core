@@ -1,6 +1,6 @@
 {
   "name": "@raulsaavedra/ios-core",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "packageManager": "bun@1.3.9",
@@ -28,5 +28,8 @@
     "@biomejs/biome": "^2.4.1",
     "@types/bun": "^1.3.9",
     "typescript": "~6.0.2"
+  },
+  "dependencies": {
+    "@expo/fingerprint": "0.20.8"
   }
 }
