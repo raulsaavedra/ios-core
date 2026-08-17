@@ -133,7 +133,7 @@ export async function prebuildExpoProject(
   } finally {
     await writeFile(packageJSONPath, packageJSON);
   }
-  await runner.run(["pod", "install", "--project-directory", resolve(projectRoot, "ios")], {
+  await runner.run(["pod", "install", `--project-directory=${resolve(projectRoot, "ios")}`], {
     cwd: projectRoot,
   });
   return readExpoNativeProject(config, root);

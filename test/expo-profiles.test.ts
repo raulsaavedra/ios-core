@@ -84,7 +84,7 @@ describe("Expo native project", () => {
           "--clean",
           "--no-install",
         ],
-        ["pod", "install", "--project-directory", resolve(projectRoot, "ios")],
+        ["pod", "install", `--project-directory=${resolve(projectRoot, "ios")}`],
       ]);
     } finally {
       await rm(root, { recursive: true, force: true });
