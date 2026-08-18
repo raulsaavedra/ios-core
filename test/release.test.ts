@@ -4,28 +4,15 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import type { ArchiveResult } from "../src/archive";
 import { parseBuildOption, publishRelease } from "../src/release";
-import type { ExpoProjectSettings, ReleaseReceipt } from "../src/types";
+import type { ReleaseReceipt } from "../src/types";
 import { fakeRunner, testConfig } from "./support";
 
-const settings: ExpoProjectSettings = {
-  projectRoot: "/tmp/Personal Projects/field-guide/apps/mobile",
-  iosDirectory: "/tmp/Personal Projects/field-guide/apps/mobile/ios",
-  workspacePath: "/tmp/Personal Projects/field-guide/apps/mobile/ios/FieldGuide.xcworkspace",
-  scheme: "FieldGuide",
+const settings = {
   build: 29,
   version: "2.0.0",
   executableName: "FieldGuide",
   productName: "FieldGuide",
   deploymentTarget: "18.0",
-  bundleIdentifier: "com.raulsaavedra.fieldguide",
-  nativeFingerprint: "fingerprint",
-};
-
-const nativeProject = {
-  projectRoot: settings.projectRoot,
-  iosDirectory: settings.iosDirectory,
-  workspacePath: settings.workspacePath,
-  scheme: settings.scheme,
 };
 
 function settingsJSON(): string {
@@ -161,8 +148,6 @@ describe("release transaction", () => {
             },
           }),
           archive: fakeArchive as never,
-          prebuild: (async () => nativeProject) as never,
-          readSettings: (async () => settings) as never,
           installService: (async () => {}) as never,
           fetch: releaseFetch(root),
           now: () => new Date("2026-08-14T12:00:00.000Z"),
@@ -198,8 +183,6 @@ describe("release transaction", () => {
           dependencies: {
             runner: fakeRunner({ capture: () => settingsJSON() }),
             archive: fakeArchive as never,
-            prebuild: (async () => nativeProject) as never,
-            readSettings: (async () => settings) as never,
             installService: (async () => {}) as never,
             fetch: releaseFetch(root, true),
           },
@@ -288,8 +271,6 @@ describe("release transaction", () => {
         dependencies: {
           runner: fakeRunner({ capture: () => settingsJSON() }),
           archive: fakeArchive as never,
-          prebuild: (async () => nativeProject) as never,
-          readSettings: (async () => settings) as never,
           installService: (async () => {}) as never,
           fetch: releaseFetch(root),
         },

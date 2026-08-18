@@ -1,15 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { resolve } from "node:path";
-import {
-  expoRunIOSCommand,
-  expoStartCommand,
-  parseApplicationBuildSettings,
-  prebuildExpoProject,
-  readApplicationBuildSettings,
-  resolveDevelopmentDevice,
-} from "../src/expo";
 import { renderExportOptions } from "../src/plist";
 import {
   decodeProvisioningProfile,
@@ -18,6 +7,7 @@ import {
   parseRequiredDeviceUDIDs,
   selectProvisioningProfile,
 } from "../src/profiles";
+import { parseApplicationBuildSettings, xcodeContainerArguments } from "../src/xcode";
 import { fakeRunner, testConfig } from "./support";
 
 const appSettings = {
@@ -30,8 +20,8 @@ const appSettings = {
   IPHONEOS_DEPLOYMENT_TARGET: "18.0",
 };
 
-describe("Expo native project", () => {
-  test("selects the generated application target from build settings", () => {
+describe("Xcode metadata", () => {
+  test("selects the application target from multi-target JSON", () => {
     expect(
       parseApplicationBuildSettings(
         [
@@ -49,98 +39,27 @@ describe("Expo native project", () => {
     });
   });
 
-  test("uses the Expo product version when reading generated Xcode settings", async () => {
-    const commands: string[][] = [];
-    await readApplicationBuildSettings(
-      testConfig(),
-      "/tmp/reptile-world",
-      {
-        projectRoot: "/tmp/reptile-world/apps/mobile",
-        iosDirectory: "/tmp/reptile-world/apps/mobile/ios",
-        workspacePath: "/tmp/reptile-world/apps/mobile/ios/ReptileWorld.xcworkspace",
-        scheme: "ReptileWorld",
-      },
-      "2.0.0",
-      fakeRunner({
-        capture: (command) => {
-          commands.push([...command]);
-          return JSON.stringify([{ target: "FieldGuide", buildSettings: appSettings }]);
-        },
-      }),
-    );
-
-    expect(commands[0]).toContain("MARKETING_VERSION=2.0.0");
+  test("rejects zero or ambiguous application targets", () => {
+    expect(() => parseApplicationBuildSettings([], "com.example.app")).toThrow("found 0");
+    expect(() =>
+      parseApplicationBuildSettings(
+        [{ buildSettings: appSettings }, { buildSettings: appSettings }],
+        "com.raulsaavedra.fieldguide",
+      ),
+    ).toThrow("found 2");
   });
 
-  test("runs clean prebuild and pod install with argv-safe paths", async () => {
-    const root = await mkdtemp(resolve(tmpdir(), "ios-core-expo project "));
-    const projectRoot = resolve(root, "apps/mobile");
-    const workspace = resolve(projectRoot, "ios/Field Guide.xcworkspace");
-    await mkdir(workspace, { recursive: true });
-    const packageJSONPath = resolve(projectRoot, "package.json");
-    const packageJSON = '{"name":"field-guide","scripts":{"ios":"expo start --ios"}}\n';
-    await writeFile(packageJSONPath, packageJSON);
-    const commands: string[][] = [];
-    try {
-      const result = await prebuildExpoProject(
-        testConfig({ expo: { projectRoot: "apps/mobile", packageManager: "bun" } }),
-        root,
-        fakeRunner({
-          run: (command) => {
-            commands.push([...command]);
-            if (command.includes("prebuild")) {
-              return writeFile(packageJSONPath, '{"scripts":{"ios":"expo run:ios"}}\n');
-            }
-          },
-        }),
-      );
-      expect(result.workspacePath).toBe(workspace);
-      expect(result.scheme).toBe("Field Guide");
-      expect(await readFile(packageJSONPath, "utf8")).toBe(packageJSON);
-      expect(commands).toEqual([
-        [
-          "bunx",
-          "--no-install",
-          "expo",
-          "prebuild",
-          "--platform",
-          "ios",
-          "--clean",
-          "--no-install",
-        ],
-        ["pod", "install", `--project-directory=${resolve(projectRoot, "ios")}`],
-      ]);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  test("keeps headless Metro reachable over the selected host", () => {
-    expect(expoStartCommand(["bunx", "expo"], { host: "lan", port: 8081 })).toEqual([
-      "bunx",
-      "expo",
-      "start",
-      "--dev-client",
-      "--port",
-      "8081",
-      "--host",
-      "lan",
+  test("builds argv-safe project and workspace arguments", () => {
+    expect(xcodeContainerArguments(testConfig(), "/tmp/Personal Projects/app")).toEqual([
+      "-project",
+      "/tmp/Personal Projects/app/apps/ios/Field Guide.xcodeproj",
     ]);
-    expect(expoStartCommand(["bunx", "expo"])).toEqual(["bunx", "expo", "start", "--dev-client"]);
-  });
-
-  test("passes a selected device to the local development build", () => {
     expect(
-      expoRunIOSCommand(["bunx", "expo"], { device: "iPhone 17 Pro", noBundler: true }),
-    ).toEqual(["bunx", "expo", "run:ios", "--device", "iPhone 17 Pro", "--no-bundler"]);
-  });
-
-  test("resolves a development device without an implicit Simulator default", () => {
-    expect(resolveDevelopmentDevice(" 00008120-001A49300261A01E ", "fallback")).toBe(
-      "00008120-001A49300261A01E",
-    );
-    expect(resolveDevelopmentDevice(undefined, " iPhone 17 Pro ")).toBe("iPhone 17 Pro");
-    expect(resolveDevelopmentDevice(undefined, "  ")).toBeUndefined();
+      xcodeContainerArguments(
+        testConfig({ xcode: { workspace: "App Workspace.xcworkspace", scheme: "App" } }),
+        "/tmp/project",
+      ),
+    ).toEqual(["-workspace", "/tmp/project/App Workspace.xcworkspace"]);
   });
 });
 

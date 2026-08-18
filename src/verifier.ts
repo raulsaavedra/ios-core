@@ -4,7 +4,8 @@ import { basename, relative, resolve } from "node:path";
 import { parsePlist, readPlist } from "./plist";
 import type { CommandRunner } from "./process";
 import { decodeProvisioningProfile, type ProvisioningProfile } from "./profiles";
-import type { Command, ExpoProjectSettings, IOSCoreConfig } from "./types";
+import type { Command, IOSCoreConfig } from "./types";
+import type { XcodeApplicationSettings } from "./xcode";
 
 export interface ArchiveProperties {
   ApplicationPath?: string;
@@ -123,7 +124,7 @@ export async function verifyExport(options: {
   archivePath: string;
   exportPath: string;
   build: number;
-  settings: ExpoProjectSettings;
+  settings: XcodeApplicationSettings;
   profile: ProvisioningProfile;
   requiredDevices: string[];
   runner: CommandRunner;

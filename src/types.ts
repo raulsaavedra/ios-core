@@ -1,18 +1,20 @@
 export type Command = readonly [executable: string, ...arguments_: string[]];
 
-export type PackageManager = "bun" | "npm" | "pnpm" | "yarn";
+export type XcodeContainer =
+  | { project: string; workspace?: never }
+  | { workspace: string; project?: never };
 
 export interface IOSCoreConfig {
-  schemaVersion: 2;
+  schemaVersion: 1;
   app: {
     id: string;
     displayName: string;
     installerDescription?: string;
     bundleIdentifier: string;
   };
-  expo: {
-    projectRoot: string;
-    packageManager?: PackageManager;
+  xcode: XcodeContainer & {
+    scheme: string;
+    configuration?: string;
   };
   sourceChecks: Command[];
   signing: {
@@ -41,20 +43,6 @@ export interface ResolvedDistribution {
   publicBaseURL: string;
   localPort: number;
   releasesRoot: string;
-}
-
-export interface ExpoProjectSettings {
-  projectRoot: string;
-  iosDirectory: string;
-  workspacePath: string;
-  scheme: string;
-  build: number;
-  version: string;
-  executableName: string;
-  productName: string;
-  deploymentTarget: string;
-  bundleIdentifier: string;
-  nativeFingerprint: string;
 }
 
 export interface ReleaseReceipt {

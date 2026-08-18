@@ -1,6 +1,6 @@
 import { access, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { dirname, isAbsolute, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { IOSCoreConfig, LoadedConfig, ResolvedDistribution } from "./types";
 
@@ -31,12 +31,12 @@ function validateCommand(value: unknown, path: string): void {
 }
 
 export function validateConfig(value: unknown): IOSCoreConfig {
-  if (!isRecord(value) || value.schemaVersion !== 2) {
-    throw new Error("ios-core config must use schemaVersion 2.");
+  if (!isRecord(value) || value.schemaVersion !== 1) {
+    throw new Error("ios-core config must use schemaVersion 1.");
   }
   assertKeys(
     value,
-    ["schemaVersion", "app", "expo", "sourceChecks", "signing", "verification", "distribution"],
+    ["schemaVersion", "app", "xcode", "sourceChecks", "signing", "verification", "distribution"],
     "config",
   );
   if (!isRecord(value.app)) throw new Error("app must be an object.");
@@ -51,16 +51,16 @@ export function validateConfig(value: unknown): IOSCoreConfig {
     assertString(value.app.installerDescription, "app.installerDescription");
   }
 
-  if (!isRecord(value.expo)) throw new Error("expo must be an object.");
-  assertKeys(value.expo, ["projectRoot", "packageManager"], "expo");
-  assertString(value.expo.projectRoot, "expo.projectRoot");
-  if (isAbsolute(value.expo.projectRoot)) {
-    throw new Error("expo.projectRoot must be relative to the ios-core config.");
+  if (!isRecord(value.xcode)) throw new Error("xcode must be an object.");
+  assertKeys(value.xcode, ["project", "workspace", "scheme", "configuration"], "xcode");
+  const hasProject = typeof value.xcode.project === "string" && value.xcode.project !== "";
+  const hasWorkspace = typeof value.xcode.workspace === "string" && value.xcode.workspace !== "";
+  if (hasProject === hasWorkspace) {
+    throw new Error("xcode must specify exactly one project or workspace.");
   }
-  if (value.expo.packageManager !== undefined) {
-    if (!["bun", "npm", "pnpm", "yarn"].includes(value.expo.packageManager as string)) {
-      throw new Error("expo.packageManager must be bun, npm, pnpm, or yarn.");
-    }
+  assertString(value.xcode.scheme, "xcode.scheme");
+  if (value.xcode.configuration !== undefined) {
+    assertString(value.xcode.configuration, "xcode.configuration");
   }
 
   if (!Array.isArray(value.sourceChecks)) throw new Error("sourceChecks must be an array.");
@@ -124,19 +124,6 @@ export function validateConfig(value: unknown): IOSCoreConfig {
   }
 
   return value as unknown as IOSCoreConfig;
-}
-
-export function resolveExpoProjectRoot(config: IOSCoreConfig, root: string): string {
-  const projectRoot = resolve(root, config.expo.projectRoot);
-  const relativeProjectRoot = relative(root, projectRoot);
-  if (
-    relativeProjectRoot === ".." ||
-    relativeProjectRoot.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) ||
-    isAbsolute(relativeProjectRoot)
-  ) {
-    throw new Error("expo.projectRoot must remain inside the ios-core config directory.");
-  }
-  return projectRoot;
 }
 
 export async function findConfigPath(

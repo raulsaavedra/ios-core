@@ -3,14 +3,14 @@ import type { IOSCoreConfig } from "../src/types";
 
 export function testConfig(overrides: Partial<IOSCoreConfig> = {}): IOSCoreConfig {
   return {
-    schemaVersion: 2,
+    schemaVersion: 1,
     app: {
       id: "field-guide",
       displayName: "Field Guide",
       installerDescription: "A native field guide.",
       bundleIdentifier: "com.raulsaavedra.fieldguide",
     },
-    expo: { projectRoot: "apps/mobile", packageManager: "bun" },
+    xcode: { project: "apps/ios/Field Guide.xcodeproj", scheme: "FieldGuide" },
     sourceChecks: [["bun", "test"]],
     signing: { teamIdentifier: "5XUYZHSMGZ", identity: "Apple Distribution" },
     verification: {
