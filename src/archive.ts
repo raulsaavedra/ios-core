@@ -78,6 +78,10 @@ export async function createArchive(options: {
     }),
   );
 
+  await runner.run(["xcrun", "agvtool", "new-version", "-all", String(build)], {
+    cwd: nativeProject.iosDirectory,
+  });
+
   await runner.run(
     [
       "xcodebuild",
