@@ -8,7 +8,7 @@ import { systemRunner } from "./process";
 import { writeJSONAtomic } from "./receipts";
 import type { RegisteredApplication, ServiceRegistry } from "./types";
 
-const PACKAGE_VERSION = "0.4.0";
+const PACKAGE_VERSION = "0.4.1";
 const LABEL = "com.raulsaavedra.ios-core";
 
 interface RuntimeReceipt {
@@ -256,6 +256,13 @@ async function activateLaunchAgent(plistPath: string, runner: CommandRunner): Pr
       bootstrapError = undefined;
       break;
     } catch (error) {
+      // launchd can register the service and still return EIO while a previous
+      // instance is finishing its teardown. The service target is the useful
+      // result here; kickstart and the health probe validate the new runtime.
+      if (runner.succeeds(["launchctl", "print", target])) {
+        bootstrapError = undefined;
+        break;
+      }
       bootstrapError = error;
       if (attempt < 4) await Bun.sleep(200);
     }

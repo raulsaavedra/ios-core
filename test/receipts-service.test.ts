@@ -187,7 +187,7 @@ describe("multi-app service", () => {
         JSON.parse(await readFile(resolve(root, "runtime/receipt.json"), "utf8")),
       ).toMatchObject({
         schemaVersion: 1,
-        packageVersion: "0.4.0",
+        packageVersion: "0.4.1",
       });
       await writeFile(runtimePath, "tampered");
       await expect(buildServiceRuntime(root)).rejects.toThrow("does not match its receipt");
@@ -213,6 +213,52 @@ describe("multi-app service", () => {
       async () => {},
     );
     expect(requests).toBe(3);
+  });
+
+  test("accepts a bootstrap error when launchd has registered the service", async () => {
+    const root = await mkdtemp(resolve(tmpdir(), "ios-core-service-bootstrap-race-"));
+    const launchAgents = resolve(root, "LaunchAgents");
+    const commands: string[][] = [];
+    let loaded = false;
+    let bootstrapAttempts = 0;
+    const target = `user/${process.getuid?.()}/com.raulsaavedra.ios-core`;
+    const runner = {
+      async capture() {
+        return "";
+      },
+      async run(command: readonly [string, ...string[]]) {
+        commands.push([...command]);
+        if (command[1] === "bootstrap") {
+          bootstrapAttempts += 1;
+          loaded = true;
+          throw new Error("launchctl bootstrap exited with code 5: Input/output error");
+        }
+      },
+      succeeds(command: readonly [string, ...string[]]) {
+        return command[1] === "print" && loaded;
+      },
+    };
+    try {
+      await installApplicationService(application(), runner, root, {
+        launchAgentsDirectory: launchAgents,
+        probeAttempts: 1,
+        sleep: async () => {},
+        fetcher: (async (_input: unknown, init?: RequestInit) => {
+          if (init?.method === "HEAD") return new Response(null);
+          return Response.json({
+            ok: true,
+            applications: [
+              { appId: "field-guide", bundleIdentifier: "com.raulsaavedra.fieldguide" },
+            ],
+          });
+        }) as unknown as typeof fetch,
+      });
+      expect(bootstrapAttempts).toBe(1);
+      expect(commands).toContainEqual(["launchctl", "kickstart", "-k", target]);
+      expect(await Bun.file(resolve(root, "registry.json")).exists()).toBeTrue();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   test("rejects a healthy listener owned by another application", async () => {
