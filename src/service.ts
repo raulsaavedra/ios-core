@@ -240,11 +240,27 @@ async function activateLaunchAgent(plistPath: string, runner: CommandRunner): Pr
   const target = serviceTarget();
   if (runner.succeeds(["launchctl", "print", target])) {
     await runner.run(["launchctl", "bootout", target]);
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      if (!runner.succeeds(["launchctl", "print", target])) break;
+      await Bun.sleep(50);
+      if (attempt === 39) throw new Error(`LaunchAgent did not unload: ${target}.`);
+    }
   }
   const uid = process.getuid?.();
   if (uid === undefined) throw new Error("ios-core service installation requires a user domain.");
   const domain = `user/${uid}`;
-  await runner.run(["launchctl", "bootstrap", domain, plistPath]);
+  let bootstrapError: unknown;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      await runner.run(["launchctl", "bootstrap", domain, plistPath]);
+      bootstrapError = undefined;
+      break;
+    } catch (error) {
+      bootstrapError = error;
+      if (attempt < 4) await Bun.sleep(200);
+    }
+  }
+  if (bootstrapError !== undefined) throw bootstrapError;
   await runner.run(["launchctl", "kickstart", "-k", target]);
 }
 
