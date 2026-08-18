@@ -90,6 +90,7 @@ export async function createArchive(options: {
       "CODE_SIGN_STYLE=Manual",
       `CODE_SIGN_IDENTITY=${identity}`,
       `PROVISIONING_PROFILE=${profile.uuid}`,
+      "SWIFT_SUPPRESS_WARNINGS=NO",
       "SWIFT_TREAT_WARNINGS_AS_ERRORS=YES",
     ],
     { cwd: options.root },
